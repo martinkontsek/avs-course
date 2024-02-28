@@ -87,6 +87,43 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
+	for(;;)
+	{
+		bzero(buffer, sizeof(struct eth_hdr)+sizeof(struct arp_hdr));
+		if(recv(sock, buffer, sizeof(struct eth_hdr)+sizeof(struct arp_hdr), 0) == -1)
+			continue;
+
+		if(hdr->ethertype != htons(ETHERTYPE_ARP))
+			continue;
+		if(arp->hw_type != htons(HW_TYPE))
+			continue;
+		if(arp->proto_type != htons(PROTO_TYPE))
+			continue;
+		if(arp->hw_len != HW_LEN)
+			continue;
+		if(arp->proto_len != PROTO_LEN)
+			continue;
+		
+		//asi arp
+		if(arp->opcode != htons(OPCODE_REPLY))
+			continue;
+		
+		struct in_addr target_ip;
+		inet_aton(TARGET_IP, &target_ip);
+		if(arp->sender_ip.s_addr != target_ip.s_addr)
+			continue;
+
+		printf("MAC: %hhx:%hhx:%hhx:%hhx:%hhx:%hhx\n",  
+			arp->sender_eth[0],
+			arp->sender_eth[1],
+			arp->sender_eth[2],
+			arp->sender_eth[3],
+			arp->sender_eth[4],
+			arp->sender_eth[5]);
+		break;
+	}
+
+
 	close(sock);
 	free(buffer);
 	return EXIT_SUCCESS;
