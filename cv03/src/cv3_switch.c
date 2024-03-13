@@ -227,8 +227,13 @@ int main(int argc, char **argv)
   {
       //TODO: Allow to exit program on keypress
       fd_set read_set;
+      //initialize set
       FD_ZERO(&read_set);
-      
+      //add sockets into set
+      for(i=0;i<argc-1;i++)
+        FD_SET(ifaces[i].sock, &read_set);
+    
+      printf("pred selectom\n");
       if(select(highest_sock, &read_set, NULL, NULL, NULL) == -1)
       {
         perror("SELECT");
@@ -237,8 +242,10 @@ int main(int argc, char **argv)
 
       for(i=0;i<argc-1;i++)
       { 
+        printf("pred isset\n");
         if(FD_ISSET(ifaces[i].sock, &read_set) != 0)
         {
+          printf("pred read\n");
           //this socket has received frame
           bzero(&buffer, sizeof(buffer));
           long frame_size;
