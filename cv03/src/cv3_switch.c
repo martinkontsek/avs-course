@@ -9,8 +9,10 @@
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
 #include <net/if.h>
+#include <arpa/inet.h>
 
 #include <sys/select.h>
+#include <sys/ioctl.h>
 
 #define MTU 1500
 
@@ -89,6 +91,22 @@ find_cam_item(struct cam_item *head, uint8_t *mac)
 }
 
 void
+cleanup_cam_table(struct cam_item *head)
+{
+  if(head == NULL)
+    return;
+
+  struct cam_item *current_item, *temp_item;
+  current_item = head;
+  while(current_item != NULL)
+  {
+    temp_item = current_item->next;
+    free(current_item);
+    current_item = temp_item;
+  }
+}
+
+void
 print_cam(struct cam_item *head)
 {
   if(head == NULL)
@@ -102,7 +120,7 @@ print_cam(struct cam_item *head)
   current_item = head->next;
   while(current_item != NULL)
   {
-    print("| %hhx:%hhx:%hhx:%hhx:%hhx:%hhx |%20s|\n",
+    printf("| %hhx:%hhx:%hhx:%hhx:%hhx:%hhx |%20s|\n",
           current_item->mac[0],
           current_item->mac[1],
           current_item->mac[2],
@@ -115,11 +133,22 @@ print_cam(struct cam_item *head)
   }
 }
 
+void cleanup_sockets(struct interface *ifaces, int ifaces_len)
+{
+  int i;
+  for(i=0;i<ifaces_len;i++)
+  {
+    //if socket wasn't created or creation failed
+    if(ifaces[i].sock > 0)
+      close(ifaces[i].sock);
+  }
+}
+
 int main(int argc, char **argv)
 {
   if(argc < 3)
   {
-    fprinf(stderr,"USAGE: %s iface_name iface_name...", argv[0]);
+    fprintf(stderr,"USAGE: %s iface_name iface_name...", argv[0]);
     exit(EXIT_FAILURE);
   }  
 
@@ -127,6 +156,7 @@ int main(int argc, char **argv)
   struct sockaddr_ll addr;
   int i;
   int highest_sock;
+  bzero(ifaces, sizeof(struct interface)*(argc-1));
   highest_sock = 0;
   for(i=1;i<argc;i++)
   {
@@ -134,14 +164,14 @@ int main(int argc, char **argv)
     if((ifaces[i-1].if_index = if_nametoindex(argv[i])) == 0)
     {
       perror("IF_NAME");
-      //TODO: clean created sockets
+      cleanup_sockets(ifaces, argc-1);
       exit(EXIT_FAILURE);
     }
 
     if((ifaces[i-1].sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1)
     {
       perror("SOCKET");
-      //TODO: clean created sockets
+      cleanup_sockets(ifaces, argc-1);
       exit(EXIT_FAILURE);
     }
 
@@ -156,7 +186,27 @@ int main(int argc, char **argv)
     if(bind(ifaces[i-1].sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
     {
       perror("BIND");
-      //TODO: clean created sockets
+      cleanup_sockets(ifaces, argc-1);
+      exit(EXIT_FAILURE);
+    }
+
+    //allow promiscuous mode
+    struct ifreq IFR;
+    bzero(&IFR, sizeof(IFR));
+    strcpy(IFR.ifr_name, ifaces[i-1].name);
+    if(ioctl(ifaces[i-1].sock, SIOCGIFFLAGS, &IFR) == -1)
+    {
+      perror("IOCTL GET");
+      cleanup_sockets(ifaces, argc-1);
+      exit(EXIT_FAILURE);
+    }
+
+    IFR.ifr_flags |= IFF_PROMISC;
+
+    if(ioctl(ifaces[i-1].sock, SIOCSIFFLAGS, &IFR) == -1)
+    {
+      perror("IOCTL SET");
+      cleanup_sockets(ifaces, argc-1);
       exit(EXIT_FAILURE);
     }
   }
@@ -166,7 +216,8 @@ int main(int argc, char **argv)
   if((head = create_cam_table()) == NULL)
   {
     fprintf(stderr, "ERROR: Cannot create CAM table.\n");
-    //TODO: clean created sockets
+    cleanup_sockets(ifaces, argc-1);
+    cleanup_cam_table(head);
     exit(EXIT_FAILURE);
   }
 
@@ -174,6 +225,7 @@ int main(int argc, char **argv)
   highest_sock++;
   while(1)
   {
+      //TODO: Allow to exit program on keypress
       fd_set read_set;
       FD_ZERO(&read_set);
       
@@ -192,13 +244,17 @@ int main(int argc, char **argv)
           long frame_size;
           if((frame_size = read(ifaces[i].sock, &buffer, sizeof(buffer))) == -1)
             continue;
+          printf("DEBUG: Received frame\n");
 
           //learning
           if(find_cam_item(head, buffer.src_mac) == NULL)
           {
+            printf("DEBUG: Learning.\n");
             //mac in not in table - insert
             if(add_item(head, buffer.src_mac, &ifaces[i]) == NULL)
               fprintf(stderr,"WARNING: Cannot add MAC to CAM.\n");
+            else
+              print_cam(head);
           }
 
           //forwarding
@@ -206,10 +262,12 @@ int main(int argc, char **argv)
           if((entry = find_cam_item(head, buffer.dst_mac)) != NULL)
           {
             //mac in table - forward via one interface
+            printf("DEBUG: Forwarding via one.\n");
             if(write(entry->iface->sock, &buffer, frame_size) == -1)
               continue;
           } else {
             //mac not in table - forward via all except receiving port
+            printf("DEBUG: Flooding.\n");
             int j;
             for(j=0;j<argc-1;j++)
             {
@@ -222,6 +280,7 @@ int main(int argc, char **argv)
       }
   }
 
-  //TODO: clean created sockets
+  cleanup_sockets(ifaces, argc-1);
+  cleanup_cam_table(head);
   return EXIT_SUCCESS;
 }
