@@ -1,100 +1,104 @@
 ---
-title: "AVS - CV4: Rozšírenie softvérového prepínača"
+title: "AVS - CV6: UDP"
 author: [Jakub Hrabovský, Martin Kontšek]
-date: "2017-03-09"
+date: "2017-03-24"
 ...
 
-# AVS - CV4: Rozšírenie softvérového prepínača
+# AVS - CV6: UDP
 
-## Zdroje - Manuálové stránky
+## Zdroje
 
-- `man 7 pthreads` - popis vlákien.
-- `man pthread_rwlock_init`, `man pthread_rwlock_destroy`, `man pthread_rwlock_rdlock`, `man pthread_rwlock_wrlock` - manipulácia so zámkom, ktorý použijem pre riadenie prístupu vlákien do kritickej sekcie (prístup do BT).
-- `man socketpair` - popis komunikačného spojenia (~ rúra).
-    + prístup ku obom koncom linky cez dvojicu socketov (`SP[0]` = zápis, `SP[1]` = čítanie).
-    + použitie len pre doménu `AF_UNIX` => prenos údajov vo forme správ (typ socketu `SOCK_DGRAM`).
-    + správu odošlem cez `send()` s flagom `MSG_DONTWAIT`, aby som neblokoval program.
-    + správu prečítam cez `read()`.
+- `man 7 ip` - všeobecne popisuje implementáciu IPv4 v linuxe => použitie socketov z domény __AF_INET__.
+    + obsahuje kroky pre povolenie posielania a prijímania broadcastových a multicastových správ.
+- `man 7 udp` - popisuje sockety z domény `AF_INET` typu `SOCK_DGRAM`.
+- `man 7 socket` - popisuje spôsob načítania aktuálnych volieb socketov a nastavenia nových volieb => _getsockopt()_ a _setsockopt()_.
+
+## Teoretická časť - UDP Sokety
+
+- UDP protokol je v linuxe dostupný cez sockety z domény `AF_INET` typu `SOCK_DGRAM` => 3. argument pri vytvorení socketu je štandardne _0_.
+    + _nespojovo-orientovany_ - komunikácia prebieha formou správ _bez vytvorenia relácie_ medzi koncovými zariadeniami => pri odosielaní a prijímani každej správy musím uviesť adresu (`struct sockaddr_in`) cieľovej stanice (alternatívou je použitie fcie `connect()`).
+    + nepodporuje _potvrdzovanie_ správ.
+    + neponúka _riadenie_ toku a zahltenia.
+    + _zachováva hranice_ medzi správami. => dáta odoslané cez fciu _sendto()_ a jej alternatívy sú odoslané do siete v samostatných segmentoch.
+
+- __FRAGMENTÁCIA__ => UDP nepozná __MTU__ na ceste medzi komunikujúcimi zariadeniami => ak nechcem používať fragmentáciu na IP, som zodpovedný za nastavenie a dodržiavanie maximálnej veľkosti UDP segementov tak, aby príslušný rámec nepresiahol veľkosť použitej prenosovej technológie (pre Ethernet - 1518B).
 
 ## Praktická časť - Program
 
-### Rozšírenie implementácie softvérového prepínača
+- praktická časť cvičenia pozostáva z realizácie 2 programov:
+    + UDP chat klient.
+    + UDP chat server.
 
-- zlepšenie vykonávania _mostu_ a rozšírenie jeho funkcií:
-    + rozdelím nezávislé časti programu do vlákien.
-    + pridám pravidelné _čistenie_ BT => odstránim staré záznamy, ktorých platnosť už skončila.
+### Server
 
-#### Nové rozloženie úloh
+1. vytvorím socket z domény AF_INET a typu SOCK_DGRAM => `socket()`.
+2. nastavím hodnoty mojej adresy (IP adresa a lokálny UDP port) a prepojím adresu so socketom => `bind()`.
+3. prijímam správy od klientov a reagujem odoslaním odpovedí => `recvfrom()`, `sendto()`.
+4. uzatvorím socket => `close()`.
 
-- `FrameReaderThread` - príjem rámcov na zvolenom rozhraní.
-    + každé rozhranie je obsluhované samostatným vláknom.
-    + vlákno sa dozvie ID rozhrania zo vstupného argumentu, ktorý nastavím pri vytvorení vlákna.
+### Klient
 
-- `AddRefreshMACThread` - proces učenia.
-    + pridám do BT nové záznamy podľa `srcMAC` rámcov, ktoré príjmem na sledovaných rozhraniach.
-    + komunikujem s vláknami (`FrameReaderThread`), ktoré mi posielajú `srcMAC` prijatých rámcov => komunikácia **N-to-1**.
-    + použijem niektorý komunikačný prostriedok pre prenos údajov medzi vláknami => zvolil som `socketpair`.
+1. vytvorím socket z domény AF_INET a typu SOCK_DGRAM => `socket()`.
+2. (voliteľné) nastavím hodnoty mojej adresy (IP adresa a lokálny UDP port) a prepojím adresu so socketom => `bind()`.
+3. (voliteľné) vytvorím virtuálne spojenie s druhou stranou => umožní používať aj fcie `send()`, `write()`, `recv()`, `read()`.
+4. odosielam správy na server a prijímam odpovede => `sendto()`, `recvfrom()`.
+5. uzatvorím socket => `close()`.
 
-- `Main` - inicializujem počiatočný stav programu:
-    + nastavím rozhrania (vytvorím socket, nastavím adresu a zapnem promiskuitný režim),
-    + vytvorím a pridelím každému rozhraniu jeden `socketpair`,
-    + vytvorím a spustím vlákna pre `DeleteUnusedMACThread` a `AddRefreshMACThread`,
-    + pre každé rozhranie vytvorím a spustím vlákno `FrameReaderThread`.
+### Broadcast
 
-- `DeleteUnusedMACThread` - pravidelne (~ 1 sec) prechádzam BT a odstránim staré záznamy => _Q:_ AKO prikážem, aby funkcia pozastavila vykonávanie príkazov a počkala požadovaný časový interval?
+- ak potrebujem posielať správy na _broadcast_ MAC adresu => povolím cez `setsockopt()` voľbu `SO_BROADCAST` => `sesockopt(fd, SOL_PACKET, SO_BROADCAST, ...)`.
 
-### Poznámky k implementácii
+### Multicast
 
-- MAC adresa je aktuálne uložená ako 6-prvkové pole => vyžaduje kopírovanie po prvkoch (`for`) alebo kopírovanie bloku pamäťe (`memcpy`) => ak zmením reprezentáciu MAC adresy na celé číslo, nahradím kopírovanie za priradenie.
-    + potrebujem údajový typ s veľkosťou aspoň 6B, ktorý je v programe vnímaný ako číslo => `unsigned long int`.
+- pre posielanie a príjem multicastových správ povolím cez `setsockopt()` => pripojím sa do multicastovej skupiny cez `IP_ADD_MEMBERSHIP` => použijem `struct ip_mreqn` => `setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, ...)`.
+    + ako lokálnu IP adresu v štruktúre môžem použiť `INADDR_ANY` => systém zvolí sám.
 
-- vizuálne zobrazenie aktuálneho stavu programu a zmien, ktoré nastanú (napr. pridanie záznamu do BT) pomáhajú pochopiť správanie programu a odhaliť chyby => použijem formátovaný výpis na obrazovku (`stdout`) s pekným zarovnaním => použijem pomocnú pamäť (pole znakov), kam si postupne vložím časti riadku. Obsah pamäte následne vypíšem.
+### Poznámky
 
-- ak nemením obsah vstupného argumentu vo funkcii, použijem pred jeho typ `const` => kompilátor ma ochráni pred chybami, kedy neúmyselne mením hodnotu vo vnútri funkcie => takto rozšírený typ je odlišný od pôvodného typu a preto musím vykonať pretypovanie (odstránim upozornenia od kompilátora).
+- __[!]__ len 1 proces môže používať dvojicu [IP]:[PORT] => aktuálne bežiace služby musím odlíšiť cez rôzne porty.
+- __[!]__ proces môže počúvať a komunikovať, až keď má pridelený svoj lokálny port => _(A)_ nastavím staticky v adrese `struct sockaddr_in`, _(B)_ OS automaticky priradí _zdrojový port_ pred odoslaním prvej správy.
 
-#### Spracovanie viacerých popisovačov (file-descriptors)
+- _Q:_ Aký je význam viacerých zdrojových IP adries nastavených na 1 rozhraní?
+    + _A:_ IP adresy môžem použiť pre identifikáciu rôznych virtuálnych serverov (apache), ktoré bežia na 1 fyzickom zariadení
 
-- `AddRefreshMACThread` komunikuje s viacerými vláknami súčasne cez `socketpair`. Problém prinášajú blokujúce operácie (`read`). Keď sa pokúsim prečítať údaje z jedného popisovača, vykonávanie vlákna sa zablokuje až do momentu, kým druhá strana pošle dáta. Spracovanie zvyšných popisovačov je tak zablokované aj v prípade, že mi niekto pošle údaje.
+- __[!]__ použitím fcie `recvfrom()` načítam vždy len jednu správu => ak prečítam menej než je veľkosť správy, zvyšok správy sa _stratí_ => vždy sa pokúsim načítať toľko bajtov, koľko obsahuje najväčšia možná správa (aplikačné dáta bez hlavičiek protokolov).
 
-- súčasné sledovanie viacerých popisovačov realizujem cez `select()` => blokujem vykonávanie, až kým aspoň na jednom zo sledovaných popisovačov neprídu údaje. Následne skontrolujem, ktoré z popisovačov sú aktívne (ponúkajú údaje na prečítanie) a tieto popisovače spracujem (prečítam čakajúce údaje). Tento postup opakujem v nekonečnej slučke. Pre sledovanie viacerých popisovačov cez `select` musím vo vnútri slučky vykonať:
+#### Prevod ip adresy (text <-> číslo)
 
-    1. inicializujem (vynulujem) a nastavím zoznam sledovaných popisovačov => `fd_set`.
-    2. zavolám fciu `select`.
-    3. prejdem všetkými sledovanými popisovačmi a kontrolujem ich aktivitu.
-    4. spracujem aktívny popisovač.
+- použijem novší spôsob konverzie medzi textovým a číselným formátom IP adries cez fcie `inet_pton()` a `inet_ntop()` (v CV2 som použil zastaralý spôsob - `inet_aton()` a `inet_ntoa()`).
+- textový (prezentačný) formát IPv4 a IPv6 adries ukladám do dostatočne dlhého poľa znakov:
+    + `INET_ADDRSTRLEN` (16) a `INET6_ADDRSTRLEN` (46) => definované v `netinet/in.h`.
+- číselný formát IP adries ukladám do `struct in_addr` (IPv4) a `struct in6_addr` (IPv6).
 
-- Príklady: obsluha viacerých sieťových rozhraní, obsluha viacerých komunikačných prostriedkov (môj prípad komunikácie N-to-1 cez `socketpair`).
-- `select` môžem použiť ako relatívne presný časovač vo vláknach => nevložím žiadny zoznam popisovačov, ale nastavím čas pre timeout (posledný argument).
-    + alternatívou je použitie časovača (**TIMER**) so zvolenou periódou, ktorý pravidelne vykonáva konkrétnu funkciu, napr. čistenie BT.
+#### Prevod mien zariadení na ip adresy a názvov služieb na čísla portov
 
-#### Synchronizácia vlákien
+- DNS prináša možnosť identifikovať zariadenie nie len podľa IP adresy ale aj podľa mena (_hostname_). Vzhľadom na princíp _well-known_ portov, ktoré sú pridelené konkrétnym službám, môžem identifikovať službu nie len podľa čísla portu ale aj podľa jej názvu.
+- program a dostupné fcie používajú _číselné_ formáty, ale človek si lepšie pamätá _textové_ formáty (názvy) => vykonám prevod mena zariadenia na IP adresu a názvu služby na číslo portu predtým, než ich použijem ako argumenty pri volaní fcií.
+    + `getaddrinfo()` = vykoná prevod mien na čísla.
+    + `getnameinfo()` = vykoná prevod čísel na mená.
 
-- zvolím všetky zdroje (premenné), ku ktorým pristupujú viaceré vlákna => použijem globálne premenné, aby k nim mali prístup všetky vlákna => **adresa BT**, **celkový počet rozhraní**, **detailné údaje o rozhraniach**, ...
-- _synchronizácia prístupu_ rôznych vlákien do **kritickej sekcie** (časť programu, kde pristupujem k zdieľanému zdroju, napr. spoločná pamäť):
-    +  **mutex** - neodlišuje operácie čítania a zápisu => obe operácie majú rovnakú prioritu.
-    +  **phtread_rwlock_t** - zámok, ktorý odlišuje operácie zápisu a čítania => zápis má vždy vyššiu prioritu ako čítanie. Dôvodom je rôzna úroveň bezpečnosti - čítanie je nedeštruktívna operácia, ktorá nemodifikuje žiadne údaje, zápis je naopak deštruktívna operácia, ktorej zlyhanie znehodnotí modifikované údaje. Viaceré vlákna môžu súčasne čitať údaje v rôznom poradí, ale zapisovať môže vždy len jedno vlákno.
+##### Getaddrinfo
 
-##### Zámok (pthread_rwlock_t)
+- `man getaddrinfo`.
+- použijem identifikátor hosta (hostname alebo textový zápis IP adresy) a služby (meno alebo číslo portu) => získam adresu na (lineárne zreťazený) zoznam všetkých dvojíc _IP:PORT_, ktoré zodpovedajú zadaným vstupom.
+- prvky zoznamu sú typu `struct addrinfo` a obsahujú všetky údaje potrebné pre vytvorenie socketu a jeho použitie (doména, typ, protokol, adresa).
+    + pre detailnejšie zadanie požiadaviek použijem argument `hints` => konkrétna doména (IPv4 / IPv6) alebo typ socketu (TCP / UDP) => hodnota `0`, resp. `NULL` znamená "bez obmedzenia", flagy upravujú správanie fcie. Ak ako argument pre `hints` použijem `NULL` => fcia použije prednastavéné hodnoty (všetko bez obmedzenia).
+- ak fcia zlyhá, chybovú správu získam cez `gai_strerror()`.
+- __[!]__ po spracovaní získaných údajov musím upratať => `freeaddrinfo()`.
 
-- pred použitím zámku ho musím vždy najprv inicializovať:
-    + **statická** inicializácia - pri deklarácii zámku mu priradím MAKRO `PTHREAD_RWLOCK_INITIALIZER` (~ mutex), ktoré použije defaultné nastavenia.
-    + **dynamická** inicializácia - použijem funkciu `pthread_rwlock_init()`, ktorá nastaví zámok podľa vstupných argumentov.
+##### Getnameinfo
 
-- zámok odlišuje operácie čitania a zápisu => pred vstupom do kritickej sekcie musím zámok zamknúť podľa operácie, ktorú budem vykonávať nad zdieľaným zdrojom => odlišný spôsob zamykania:
-    + čítanie = `pthread_rwlock_rdlock()`.
-    + zápis = `pthread_rwlock_wrlock()`.
-- po ukončení kritickej sekcie zámok opäť odomknem cez `pthread_rwlock_unlock()`.
+- `man getnameinfo`.
+- získam zo `struct sockaddr` meno zariadenia a názov služby.
+- pre výstupy vytvorím polia s dĺžkou `NI_MAXHOST` (1025) a `NI_MAXSERV` (32) => definované v `netdb.h`.
+- detailné požiadavky na správanie fcie nastavím cez flagy (bitový vektor => nastavenie cez bitový OR).
 
-### Čistenie bt
+## Rozširujúce úlohy
 
-1. zamknem zámok pre zápis do BT => `pthread_rwlock_wrlock()`,
-2. zaznamenám si aktuálny čas => `time(NULL)`,
-3. odstránim všetky staré záznamy => prejdem celú BT a pre každý záznam overím jeho aktuálny vek,
-4. odomknem zámok nad tab => `pthread_rwlock_unlock()`,
-5. počkám pevný časový interval (~1 sec) => regulácia pravidelného čistenia, aby som touto operáciou nezahltil CPU,
-6. vrátim sa na krok 1.
-
-## Doplňujúce úlohy
-
-- **Úloha 1** - pridaj podporu pre VLAN => prístupové virtuálne siete (VLAN) a značkovanie rámcov (_VLAN-TAGGING_).
-- **Úloha 2** - pridaj _riadiacu konzolu_ do programu => vytvor _MENU_ so základnými funkciami, cez ktoré môže používateľ meniť nastavenia mostu.
+- **Úloha 1** - vytvorím program pre UDP klienta, ktorý bude posielať UDP správy s vlastným obsahom na zvolen IP adresu a port 1234.
+    + v cykle načítavam riadok zo stdin a hneď odošlem v UDP správe.
+- **Úloha 2** - vytvorím program pre UDP server, ktorý prijíma prichádzajúce správy na porte 1234.
+    + prijaté správy a ich odosielateľa vypisujem na stdout v tvare _"[IP odosielateľa]:[PORT odosielateľa] - [SPRÁVA]"_.
+- **Úloha 3** - vytvorím program, ktorý prijíma správy z multicastovej IP adresy 224.0.0.9 (_RIPv2_) => spracujem a vypíšem položky na stdout.
+    + definujem hlavičku RIP správy.
+    + __[!]__ všetky _viacbajtové_ hodnoty sú v _NetworkByteOrder_ => pred vypísaním prevediem na _HostByteOrder_.
