@@ -11,9 +11,35 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <pthread.h>
+
 #define BIND_IP "0.0.0.0"
 #define BIND_PORT 9999
 #define BACKLOG 10
+
+
+void * handle_client(void *sock)
+{
+    int client_sock;
+    client_sock = *((int *) sock);
+    //Handle client
+    while(1)
+    {
+        int read_len;
+        char buf[1500];
+        if((read_len = read(client_sock, buf, 1500)) == -1)
+            continue;
+        
+        // socket is already closed
+        if(read_len == 0)
+            break;
+
+        buf[read_len] = '\0';
+        printf("Msg: %s\n", buf);
+    }
+
+    return NULL;
+}
 
 int main()
 {
@@ -54,28 +80,16 @@ int main()
     {
         int client_sock;
         socklen_t addr_len;
-        char buf[1500];
         bzero(&addr, sizeof(addr));
         addr_len = sizeof(addr);
         if((client_sock = accept(sock, (struct sockaddr *)&addr, &addr_len)) == -1)
             continue;
 
-        //Handle client
-        printf("Connected client %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+        printf("Connected client %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port)); 
+        //handle client
 
-        while(1)
-        {
-            int read_len;
-            if((read_len = read(client_sock, buf, 1500)) == -1)
-                continue;
-            
-            // socket is already closed
-            if(read_len == 0)
-                break;
-
-            buf[read_len] = '\0';
-            printf("Msg: %s\n", buf);
-        }
+        pthread_t thread;
+        pthread_create(&thread, NULL, handle_client, (void *) &client_sock);
     }
 
     shutdown(sock, SHUT_RDWR);
