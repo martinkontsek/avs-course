@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Mikrotik Vlan setter</title>
+<style>
+    table {
+      font-family: arial, sans-serif;
+      border-collapse: collapse;
+      width: 100%;
+    }
+    
+    td, th {
+      border: 1px solid #dddddd;
+      text-align: left;
+      padding: 8px;
+    }
+    
+    tr:nth-child(even) {
+      background-color: #dddddd;
+    }
+</style>
+</head>
+<body>
+    <form method="post">
+    <table>
+        <tr>
+          <th>Vlan</th>
+          {% for port in ports %}
+          <th>{{port["interface"]}}</th>
+          {% endfor %}
+        </tr>
+        {% for vlan in vlans %}
+        <tr>
+          <td>{{vlan["comment"]}} (Vlan{{vlan["vlan-ids"]}})</td>
+          {% for port in ports %}
+          <td>
+            <select name='{{port["interface"]}}|{{vlan["vlan-ids"]}}' id='{{port["interface"]}}|{{vlan["vlan-ids"]}}'>
+                {% if port["pvid"] == vlan["vlan-ids"] %}
+                <option value="u" selected>Untagged</option>
+                <option value="t">Tagged</option>
+                <option value="e">Excluded</option>
+                {% else %}
+                <option value="u">Untagged</option>
+                    {% if port["interface"] in vlan["tagged"].split(",")%}
+                    <option value="t" selected>Tagged</option>
+                    <option value="e">Excluded</option>
+                    {% else %}
+                    <option value="t">Tagged</option>
+                    <option value="e" selected>Excluded</option>
+                    {% endif %}
+                {% endif %}
+              </select>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+      <input type="submit" value="Nastav"> 
+      </form>
+</body>
+</html> 
