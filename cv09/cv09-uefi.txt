@@ -1,0 +1,144 @@
+https://uefi.org/
+https://uefi.org/sites/default/files/resources/UEFI_Spec_2_9_2021_03_18.pdf
+
+https://wikileaks.org/ciav7p1/cms/files/UEFI%202_5.pdf
+
+http://www.rodsbooks.com/efi-programming/
+https://wiki.osdev.org/UEFI
+https://wikileaks.org/ciav7p1/cms/page_26968080.html
+
+###
+# EFI vo VirtualBox 7 nevie precitat CD bez EFI FAT particie
+dd if=/dev/zero of=disk.img bs=512 count=93750
+gdisk disk.img
+sudo losetup --offset 1048576 --sizelimit 46934528 /dev/loop5 disk.img
+sudo mkdosfs -F 32 /dev/loop5
+sudo mount /dev/loop5 /mnt
+cp -r /home/student/Downloads/iso /mnt
+
+# vykopirovat disk.img z virtualky do hosta
+
+"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" convertfromraw --format VDI disk.img disk.vdi
+###
+
+# EFI vo VirtualBox 7.0.6 na Linuxe funguje s UDF suborovym systemom na CD
+genisoimage -o ~/Downloads/efi.iso -V EFI -r -udf ~/Downloads/iso
+
+
+# genisoimage funguje len pre EFI vo VirtualBox 6
+# EFI test - GRUB
+apt install genisoimage
+mkdir ~/Downloads/iso
+wget http://archive.ubuntu.com/ubuntu/dists/focal/main/uefi/grub2-amd64/current/grubx64.efi
+genisoimage -o ~/Downloads/efi.iso -V EFI -r -J ~/Downloads/iso
+
+
+# EFI shell
+https://chipsec.github.io/installation/USB%20with%20UEFI%20Shell.html
+wget https://github.com/pbatard/UEFI-Shell/releases/download/23H2/UEFI-Shell-2.2-23H2-RELEASE.iso
+#wget https://github.com/tianocore/edk2/blob/UDK2018/ShellBinPkg/UefiShell/X64/Shell.efi
+mkdir -p efi/boot
+mv Shell.efi efi/boot/Bootx64.efi
+genisoimage -o ~/Downloads/efi.iso -V EFI -r -J ~/Downloads/iso
+
+
+***GNU-EFI
+http://www.rodsbooks.com/efi-programming/
+https://wiki.osdev.org/UEFI_App_Bare_Bones
+
+
+apt install gnu-efi binutils-mingw-w64 gcc-mingw-w64
+
+main.c
+****************************
+#include <efi.h>
+#include <efilib.h>
+ 
+EFI_STATUS
+EFIAPI
+efi_main (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+{
+  InitializeLib(ImageHandle, SystemTable);
+  Print(L"Hello, world!\n");
+  return EFI_SUCCESS;
+}
+**************
+ARCH            = $(shell uname -m | sed s,i[3456789]86,ia32,)
+
+OBJS            = main.o
+TARGET          = hello.efi
+
+EFIINC          = /usr/include/efi
+EFIINCS         = -I$(EFIINC) -I$(EFIINC)/$(ARCH) -I$(EFIINC)/protocol
+LIB             = /usr/lib
+EFILIB          = /usr/lib
+EFI_CRT_OBJS    = $(EFILIB)/crt0-efi-$(ARCH).o
+EFI_LDS         = $(EFILIB)/elf_$(ARCH)_efi.lds
+
+CFLAGS          = $(EFIINCS) -fno-stack-protector -fpic \
+		  -fshort-wchar -mno-red-zone -Wall 
+ifeq ($(ARCH),x86_64)
+  CFLAGS += -DEFI_FUNCTION_WRAPPER
+endif
+
+LDFLAGS         = -nostdlib -znocombreloc -T $(EFI_LDS) -shared \
+		  -Bsymbolic -L $(EFILIB) -L $(LIB) $(EFI_CRT_OBJS) 
+
+all: $(TARGET)
+
+hello.so: $(OBJS)
+	ld $(LDFLAGS) $(OBJS) -o $@ -lefi -lgnuefi
+
+%.efi: %.so
+	objcopy -j .text -j .sdata -j .data -j .dynamic \
+		-j .dynsym  -j .rel -j .rela -j .reloc \
+		--target=efi-app-$(ARCH) $^ $@
+		
+********************
+
+
+
+***Posix-EFI
+https://wiki.osdev.org/POSIX-UEFI
+https://gitlab.com/bztsrc/posix-uefi
+
+git clone https://gitlab.com/bztsrc/posix-uefi.git
+mkdir hello
+cd hello
+ln -s ../posix-uefi/uefi
+
+
+**************
+
+#include <uefi.h>
+ 
+int main (int argc, char **argv)
+{
+  printf("Hello, world!\n");
+  return 0;
+}
+*********
+
+TARGET = hello-posix.efi
+ 
+include uefi/Makefile
+
+
+************BIOS Implementation Test Suite
+https://biosbits.org/
+
+
+
+*******TianoCore EDKII
+https://www.tianocore.org/
+
+On Win:
+https://www.basicinputoutput.com/2019/10/hello-world-quick-start-with-edk2.html
+https://www.basicinputoutput.com/2018/10/alex-ionescus-visualuefi.html
+
+https://github.com/tianocore/edk2
+https://github.com/tianocore/tianocore.github.io/wiki/Getting-Started-with-EDK-II
+
+
+uuid-dev nasm iasl
+
