@@ -26,7 +26,7 @@ date: "2019-02-15"
 - predmet vyžaduje základné znalosti jazyka C.
 - vyučovanie predmetu AVS sa primárne zameriava na praktické oboznámenie sa so vzdialenou komunikáciou medzi procesmi cez počítačovú sieť => počas cvičenia je vždy stručne vysvetlená základná teória k danej látke, ktorá je následne prakticky precvičovaná na zvolených úlohách.
 - na konci každej hodiny sú uvedené odporúčané domáce úlohy pre upevnenie a prípadné rozšírenie učiva.
-- materiály pre predmet sú umiestnené na [githube](https://github.com/jhrabovsky/AvS.git).
+- materiály pre predmet sú umiestnené na UNIZA Moodli a [githube](https://github.com/martinkontsek/AvS.git).
 
 ## Teoretická časť
 
