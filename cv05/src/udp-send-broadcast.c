@@ -12,7 +12,7 @@
 #include <arpa/inet.h>
 
 #define DST_PORT 1234
-#define DST_ADDR "127.0.0.1"
+#define DST_ADDR "158.193.154.255"
 
 int main()
 {
@@ -31,6 +31,14 @@ int main()
 	if(inet_aton(DST_ADDR, &addr.sin_addr) == 0)
 	{
 		printf("ERROR: INET_ATON!!!\n");
+		close(sock);
+		exit(EXIT_FAILURE);
+	}
+
+	int allow_broadcast = 1;
+	if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &allow_broadcast, sizeof(allow_broadcast)) == -1)
+	{
+		perror("SETSOCKOPT");
 		close(sock);
 		exit(EXIT_FAILURE);
 	}
