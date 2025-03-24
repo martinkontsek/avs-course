@@ -1,10 +1,10 @@
 ---
-title: "AVS - CV7: RIP"
+title: "AVS - CV6: RIP"
 author: [Jakub Hrabovský, Martin Kontšek]
 date: "2017-03-30"
 ...
 
-# AVS - CV7: RIP
+# AVS - CV6: RIP
 
 ## Teoretická časť
 
