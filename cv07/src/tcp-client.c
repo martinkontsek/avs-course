@@ -1,38 +1,40 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <strings.h>
 
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
-#define IP "127.0.0.1"
-#define PORT 9999
+#include <net/if.h>
+
+#define DST_IP "::1"
+#define DST_PORT 4321
 
 int main()
 {
     int sock;
-    struct sockaddr_in addr;
-    if((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    sock = socket(AF_INET6, SOCK_STREAM, 0);
+    if(sock == -1)
     {
         perror("SOCKET");
         exit(EXIT_FAILURE);
     }
 
+    struct sockaddr_in6 addr;
     bzero(&addr, sizeof(addr));
-    addr.sin_family = AF_INET;
-    if(inet_pton(AF_INET, IP, &addr.sin_addr) == 0)
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(DST_PORT);
+    if(inet_pton(AF_INET6, DST_IP, &addr.sin6_addr) < 0)
     {
-        fprintf(stderr, "ERROR: inet_pton\n");
+        perror("INET_PTON");
         close(sock);
         exit(EXIT_FAILURE);
-    }
-    addr.sin_port = htons(PORT);
+    } 
 
     if(connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
     {
@@ -41,19 +43,13 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    while(1)
-    {
-        char buf[1500];
+    char buffer[100];
+    bzero(buffer, 100);
 
-        printf("Enter msg to send (/q to exit): ");
-        scanf("%s", buf);
+    printf("Enter msg to send: ");
+    fgets(buffer, 100, stdin);
 
-        //exit program
-        if(strcmp(buf, "/q") == 0)
-            break;
-
-        write(sock, buf, strlen(buf));
-    }
+    send(sock, buffer, strlen(buffer), 0);
 
     close(sock);
     return EXIT_SUCCESS;

@@ -1,66 +1,53 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <strings.h>
 
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <net/if.h>
 #include <pthread.h>
 
-#define BIND_IP "0.0.0.0"
-#define BIND_PORT 9999
-#define BACKLOG 10
+#define IP "::"
+#define PORT 4321
+#define BACKLOG 2
 
-
-void * handle_client(void *sock)
+void * handle_client(int *sock)
 {
-    int client_sock;
-    client_sock = *((int *) sock);
-    //Handle client
-    while(1)
-    {
-        int read_len;
-        char buf[1500];
-        if((read_len = read(client_sock, buf, 1500)) == -1)
-            continue;
-        
-        // socket is already closed
-        if(read_len == 0)
-            break;
+    int client_sock = *sock;
 
-        buf[read_len] = '\0';
-        printf("Msg: %s\n", buf);
-    }
-
-    return NULL;
+    char buffer[100];
+    bzero(buffer, 100);
+    recv(client_sock, buffer, 100, 0);
+    printf("MSG: %s", buffer);
+    close(client_sock);
 }
 
 int main()
 {
     int sock;
-    struct sockaddr_in addr;
-    if((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    sock = socket(AF_INET6, SOCK_STREAM, 0);
+    if(sock == -1)
     {
         perror("SOCKET");
         exit(EXIT_FAILURE);
     }
 
+    struct sockaddr_in6 addr;
     bzero(&addr, sizeof(addr));
-    addr.sin_family = AF_INET;
-    if(inet_pton(AF_INET, BIND_IP, &addr.sin_addr) == 0)
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(PORT);
+    if(inet_pton(AF_INET6, IP, &addr.sin6_addr) < 1)
     {
-        fprintf(stderr, "ERROR: inet_pton\n");
+        perror("INET_PTON");
         close(sock);
         exit(EXIT_FAILURE);
-    }
-
-    addr.sin_port = htons(BIND_PORT);
+    } 
 
     if(bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
     {
@@ -69,29 +56,39 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    if(listen(sock, BACKLOG) == -1)
+    if(listen(sock, BACKLOG))
     {
         perror("LISTEN");
         close(sock);
         exit(EXIT_FAILURE);
     }
 
-    while(1)
+    int clinet_sock;
+    socklen_t addr_len = sizeof(addr);
+    char buffer[100];
+    for(;;)
     {
-        int client_sock;
-        socklen_t addr_len;
         bzero(&addr, sizeof(addr));
-        addr_len = sizeof(addr);
-        if((client_sock = accept(sock, (struct sockaddr *)&addr, &addr_len)) == -1)
+        clinet_sock = accept(sock, (struct sockaddr *)&addr, &addr_len);
+        if(clinet_sock == -1)
+        {
+            perror("ACCEPT");
             continue;
+        }
 
-        printf("Connected client %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port)); 
-        //handle client
+        bzero(buffer, 100);
+        inet_ntop(AF_INET6, &addr.sin6_addr, buffer, 100);
 
-        pthread_t thread;
-        pthread_create(&thread, NULL, handle_client, (void *) &client_sock);
+        printf("Client [%s]:%d connected.\n",
+            buffer,
+            ntohs(addr.sin6_port)
+        );
+
+        pthread_t thread_id;
+        pthread_create(&thread_id, NULL, handle_client, &clinet_sock);
+        continue;
     }
 
-    shutdown(sock, SHUT_RDWR);
+    close(sock);
     return EXIT_SUCCESS;
 }

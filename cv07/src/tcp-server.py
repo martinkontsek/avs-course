@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
 
-import socket as s
-import threading as t
+import socket
+import threading
 
-BIND_IP = "0.0.0.0"
-BIND_PORT = 9999
+IP = "::"
+PORT = 4321
 
-def handle_client(client_sock : s.socket):
-    while True:
-        buf = client_sock.recv(1500)
+def tcp_server(ip, port, backlog=2):
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.bind((ip, port))
+        sock.listen(backlog)
 
-        #client ended connection
-        if len(buf) == 0:
-            break
+        while True:
+            (client_sock, addr) = sock.accept()
+            print("Client [{}]:{} connected.".format(addr[0], addr[1]))
 
-        print("Msg: "+buf.decode())
+            threading.Thread(target=handle_client, args=(client_sock,)).start()
+    except Exception as e:
+        print("ERROR: "+str(type(e)) + str(e))
+    
+def handle_client(client_sock : socket.socket):
+    buffer = client_sock.recv(100)
+    print("MSG: " + buffer.decode())
+    client_sock.close()
+
 
 if __name__ == "__main__":
-
-    sock = s.socket(s.AF_INET, s.SOCK_STREAM)
-    sock.bind((BIND_IP, BIND_PORT))
-    sock.listen(10)
-    
-    while True:
-        (client_sock, (ip, port)) = sock.accept()
-        print("Connected client {}:{}".format(ip, port))
-
-        thread = t.Thread(target=handle_client, args=(client_sock,))
-        thread.start()
-
-
+    tcp_server(IP, PORT)

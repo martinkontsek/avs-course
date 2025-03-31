@@ -1,10 +1,10 @@
 ---
-title: "AVS - CV8: TCP"
+title: "AVS - CV7: TCP"
 author: [Jakub Hrabovský, Martin Kontšek]
 date: "2017-04-09"
 ...
 
-# AVS - CV8: TCP
+# AVS - CV7: TCP
 
 ## Teoretická časť - Vlastnosti TCP
 
