@@ -1,61 +1,94 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Mikrotik Vlan setter</title>
-<style>
-    table {
-      font-family: arial, sans-serif;
-      border-collapse: collapse;
-      width: 100%;
-    }
-    
-    td, th {
-      border: 1px solid #dddddd;
-      text-align: left;
-      padding: 8px;
-    }
-    
-    tr:nth-child(even) {
-      background-color: #dddddd;
-    }
-</style>
+    <title>Mikrotik Switch VLAN GUI</title>
+    <style>
+        .styled-table {
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 0.9em;
+            font-family: sans-serif;
+            min-width: 400px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .styled-table thead tr {
+            background-color: #009879;
+            color: #ffffff;
+            text-align: left;
+        }
+
+
+
+        .styled-table th,
+        .styled-table td {
+            padding: 12px 15px;
+        }
+
+        .styled-table tbody tr {
+            border-bottom: 1px solid #dddddd;
+        }
+
+        .styled-table tbody tr:nth-of-type(even) {
+            background-color: #f3f3f3;
+        }
+
+        .styled-table tbody tr:last-of-type {
+            border-bottom: 2px solid #009879;
+        }
+
+        .styled-table tbody tr.active-row {
+            font-weight: bold;
+            color: #009879;
+        }
+    </style>
 </head>
+
 <body>
+    <h1>Mikrotik Switch VLAN GUI</h1>
+    <br />
     <form method="post">
-    <table>
-        <tr>
-          <th>Vlan</th>
-          {% for port in ports %}
-          <th>{{port["interface"]}}</th>
-          {% endfor %}
-        </tr>
-        {% for vlan in vlans %}
-        <tr>
-          <td>{{vlan["comment"]}} (Vlan{{vlan["vlan-ids"]}})</td>
-          {% for port in ports %}
-          <td>
-            <select name='{{port["interface"]}}|{{vlan["vlan-ids"]}}' id='{{port["interface"]}}|{{vlan["vlan-ids"]}}'>
-                {% if port["pvid"] == vlan["vlan-ids"] %}
-                <option value="u" selected>Untagged</option>
-                <option value="t">Tagged</option>
-                <option value="e">Excluded</option>
-                {% else %}
-                <option value="u">Untagged</option>
-                    {% if port["interface"] in vlan["tagged"].split(",")%}
-                    <option value="t" selected>Tagged</option>
-                    <option value="e">Excluded</option>
-                    {% else %}
-                    <option value="t">Tagged</option>
-                    <option value="e" selected>Excluded</option>
-                    {% endif %}
-                {% endif %}
-              </select>
-          </td>
-          {% endfor %}
-        </tr>
-        {% endfor %}
-      </table>
-      <input type="submit" value="Nastav"> 
-      </form>
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>PVID</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for iface in ifaces %}
+            <tr>
+                <td>{{ iface["interface"] }}</td>
+                <td>
+                    <select name='{{ iface["interface"] }}-type'>
+                        {% if iface["type"] == "access" %}
+                        <option value="access" selected>access</option>
+                        <option value="trunk">trunk</option>
+                        {% endif %}
+                        {% if iface["type"] == "trunk" %}
+                        <option value="access">access</option>
+                        <option value="trunk" selected>trunk</option>
+                        {% endif %}
+                    </select>
+                </td>
+                <td>
+                    <select name='{{ iface["interface"] }}-pvid'>
+                    {% for vid in vids %}
+                        {% if iface["pvid"] == vid["vlan-ids"] %}
+                        <option value='{{vid["vlan-ids"]}}' selected>{{vid["vlan-ids"]}}</option>
+                        {% else %}
+                        <option value='{{vid["vlan-ids"]}}'>{{vid["vlan-ids"]}}</option>
+                        {% endif %}
+                    {% endfor %}
+                    </select> 
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <button type="submit">Save changes</button>
+    </form>
 </body>
+
 </html> 
