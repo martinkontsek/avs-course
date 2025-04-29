@@ -1,13 +1,14 @@
 https://uefi.org/
-https://uefi.org/sites/default/files/resources/UEFI_Spec_2_9_2021_03_18.pdf
+https://uefi.org/sites/default/files/resources/UEFI_Spec_Final_2.11.pdf
 
 https://wikileaks.org/ciav7p1/cms/files/UEFI%202_5.pdf
 
 http://www.rodsbooks.com/efi-programming/
 https://wiki.osdev.org/UEFI
 https://wikileaks.org/ciav7p1/cms/page_26968080.html
+https://animeshz.github.io/site/blogs/demystifying-uefi.html
 
-###
+############ Stary navod pre VirtualBox ############
 # EFI vo VirtualBox 7 nevie precitat CD bez EFI FAT particie
 dd if=/dev/zero of=disk.img bs=512 count=93750
 gdisk disk.img
@@ -40,6 +41,48 @@ wget https://github.com/pbatard/UEFI-Shell/releases/download/23H2/UEFI-Shell-2.2
 mkdir -p efi/boot
 mv Shell.efi efi/boot/Bootx64.efi
 genisoimage -o ~/Downloads/efi.iso -V EFI -r -J ~/Downloads/iso
+############ Stary navod pre VirtualBox ############
+
+
+
+
+############### Novy navod pre QEMU cez SSH X11 Forwarding (Ubuntu 24.04)
+# QEMU DEV environment
+sudo apt install -y qemu-system-x86
+
+# uefi-run ako normalny pouzivatel
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+logout
+. "$HOME/.cargo/env"
+cargo install uefi-run
+
+sudo chmod -R 777 /usr/share/OVMF/
+#/usr/share/OVMF/OVMF_CODE_4M.fd 
+#/usr/share/OVMF/OVMF_VARS_4M.fd
+
+qemu-system-x86_64 -cpu qemu64 \
+  -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE_4M.fd,readonly=on \
+  -drive if=pflash,format=raw,unit=1,file=/usr/share/OVMF/OVMF_VARS_4M.fd \
+  -net none
+
+
+# qemu gui current dir
+qemu-system-x86_64 \
+     -drive if=pflash,format=raw,readonly,file=/usr/share/qemu/OVMF.fd \
+     -drive format=raw,file=fat:rw:$PWD \
+     -net none
+
+# qemu console current dir (exit CTRL+A x)
+qemu-system-x86_64 \
+     -drive if=pflash,format=raw,readonly,file=/usr/share/qemu/OVMF.fd \
+     -drive format=raw,file=fat:rw:$PWD \
+     -net none \
+     -nographic
+
+cd /home/ubuntu/avs-course/cv10/src/gnu-efi
+make
+file hello.efi 
+uefi-run hello.efi
 
 
 ***GNU-EFI
@@ -96,13 +139,25 @@ hello.so: $(OBJS)
 		
 ********************
 
+cd /home/ubuntu/avs-course/cv10/src/gnu-efi
+make
+uefi-run hello.efi
 
 
 ***Posix-EFI
 https://wiki.osdev.org/POSIX-UEFI
 https://gitlab.com/bztsrc/posix-uefi
 
+cd /home/ubuntu/avs-course/cv10/src/
 git clone https://gitlab.com/bztsrc/posix-uefi.git
+
+
+cd posix-uefi/examples/0C_png
+make
+uefi-run png.efi -f image.png:0C_png/image.png
+
+
+
 mkdir hello
 cd hello
 ln -s ../posix-uefi/uefi
@@ -136,8 +191,9 @@ On Win:
 https://www.basicinputoutput.com/2019/10/hello-world-quick-start-with-edk2.html
 https://www.basicinputoutput.com/2018/10/alex-ionescus-visualuefi.html
 
+Linux:
 https://github.com/tianocore/edk2
-https://github.com/tianocore/tianocore.github.io/wiki/Getting-Started-with-EDK-II
+https://github.com/tianocore/tianocore.github.io/wiki/Build-Instructions
 
 
 uuid-dev nasm iasl
