@@ -6,7 +6,7 @@
             "command": "sudo",
             "args": [
                 "setcap",
-                "cap_net_raw=ep",
+                "'cap_net_raw=ep cap_net_admin=ep'",
                 "${fileDirname}/${fileBasenameNoExtension}"
             ],
             "options": {

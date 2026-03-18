@@ -11,6 +11,7 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 
 #define MTU 1500
 
@@ -134,7 +135,7 @@ void print_CAM_table(struct CAM_entry **head)
         pom = pom->next;
     }
     
-    printf("|-------------------|-----------|\n");
+    printf("|-------------------|-----------|\n\n");
 }
 
 
@@ -144,8 +145,11 @@ int main()
     struct CAM_entry *head = NULL;
 
     const int if_count = 2;
-    char iface_names[if_count][5] = {"ens3", "ens4"};
+    char iface_names[if_count][5];
+    strcpy(iface_names[0], "ens4");
+    strcpy(iface_names[1], "ens5");
     struct IF_entry if_entries[if_count];
+    int highest_socket = 0;
 
     for(int i=0; i<if_count; i++)
     {
@@ -167,6 +171,10 @@ int main()
             exit(EXIT_FAILURE);
         };
 
+        // determine highest socket number
+        if(highest_socket < if_entries[i].sock)
+            highest_socket = if_entries[i].sock;
+
         struct sockaddr_ll addr;
         memset(&addr, 0, sizeof(addr));
         addr.sll_family = AF_PACKET;
@@ -182,10 +190,10 @@ int main()
         //Enable promiscious mode
         struct ifreq ifr;
         memset(&ifr, 0, sizeof(ifr));
-        strcpy(ifr.ifr_name, if_entries[i]);
+        strcpy(ifr.ifr_name, if_entries[i].name);
         if(ioctl(if_entries[i].sock, SIOCGIFFLAGS, &ifr) == -1)
         {
-           perror("IOCTL GET");
+            perror("IOCTL GET");
             //TODO: clean
             exit(EXIT_FAILURE); 
         }
@@ -193,13 +201,77 @@ int main()
 
         if(ioctl(if_entries[i].sock, SIOCSIFFLAGS, &ifr) == -1)
         {
-           perror("IOCTL SET");
+            perror("IOCTL SET");
             //TODO: clean
             exit(EXIT_FAILURE); 
         }
     }
 
- 
+    struct eth_frame buffer;
+    fd_set fds;
+    ssize_t recv_len;
+    struct CAM_entry *cam_entry_pom;
+
+    for(;;)
+    {        
+        FD_ZERO(&fds);
+        for(int i=0; i<if_count; i++)
+        {
+            FD_SET(if_entries[i].sock, &fds);
+        }
+
+        if(select(highest_socket+1, &fds, NULL, NULL, NULL) == -1)
+        {
+            perror("SELECT");
+            continue;
+        }
+
+        for(int i=0; i<if_count; i++)
+        {
+            if(FD_ISSET(if_entries[i].sock, &fds) != 0)
+            {
+                memset(&buffer, 0, sizeof(buffer));
+                recv_len = recv(if_entries[i].sock, &buffer, sizeof(buffer), 0);
+                
+                //receiving error
+                if(recv_len == -1)
+                    continue;
+
+                //FORWARDING
+                cam_entry_pom = NULL;
+                cam_entry_pom = find_CAM_entry(&head, buffer.dst_mac);
+                if(cam_entry_pom != NULL)
+                {
+                    //entry found -> forwarding through 1 iface
+                    send(cam_entry_pom->iface->sock, &buffer, recv_len, 0);
+                } else {
+                    //entry not found -> flooding
+                    for(int j=0; j<if_count; j++)
+                    {
+                        //if not same interface as receiving one -> forward
+                        if(if_entries[j].sock != if_entries[i].sock)
+                            send(if_entries[j].sock, &buffer, recv_len, 0);
+                    }
+                }
+
+                //LEARNING
+                cam_entry_pom = NULL;
+                cam_entry_pom = find_CAM_entry(&head, buffer.src_mac);
+                if(cam_entry_pom == NULL)
+                {
+                    //entry not found -> add to table
+                    add_CAM_entry(&head, buffer.src_mac, &if_entries[i]);
+                } else {
+                    //entry found -> update interface
+                    cam_entry_pom->iface = &if_entries[i];
+                }
+
+                //print CAM table
+                print_CAM_table(&head);
+            }
+        }
+
+    }
 
     return EXIT_SUCCESS;
 }
