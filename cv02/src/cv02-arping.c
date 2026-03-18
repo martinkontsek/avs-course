@@ -2,34 +2,25 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <strings.h>
+#include <stdint.h>
 
 #include <sys/socket.h>
-#include <linux/if_packet.h>
+#include <netpacket/packet.h>
 #include <net/ethernet.h>
-#include <arpa/inet.h>
+#include <sys/types.h>
 #include <net/if.h>
-
+#include <arpa/inet.h>
 #include <netinet/in.h>
-#include <linux/if_arp.h>
 
-#define IF_NAME "ens3"
-#define IF_MAC "fa:16:3e:e8:30:07"
-#define IF_IP "158.193.154.203"
-
-#define TARGET_IP "158.193.154.1"
-
-// arp && eth.src == fa:16:3e:e8:30:07
-
-struct Eth_frame
+struct eth_hdr
 {
     uint8_t dst_mac[6];
     uint8_t src_mac[6];
     uint16_t eth_type;
-    char payload[0];
+    uint8_t payload[0];
 }__attribute__((packed));
 
-struct Arp
+struct arp_packet
 {
     uint16_t hw_type;
     uint16_t proto_type;
@@ -42,6 +33,14 @@ struct Arp
     struct in_addr target_ip;
 }__attribute__((packed));
 
+#define IF_NAME "ens3"
+#define MY_IP "158.193.154.177"
+#define GW_IP "158.193.154.1"
+#define MY_MAC "fa:16:3e:a7:a3:33"
+
+#define ARP_REQUEST (1)
+#define ARP_REPLY   (2)
+
 int main()
 {
     int sock;
@@ -53,10 +52,10 @@ int main()
     }
 
     struct sockaddr_ll addr;
-    bzero(&addr, sizeof(addr));
+    memset(&addr, 0, sizeof(addr));
     addr.sll_family = AF_PACKET;
     addr.sll_ifindex = if_nametoindex(IF_NAME);
-    if(sock == 0)
+    if(addr.sll_ifindex == 0)
     {
         perror("IF_NAMETOINDEX");
         close(sock);
@@ -70,73 +69,100 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    uint8_t *buffer;
-    size_t buffer_len;
-    buffer_len = sizeof(struct Eth_frame) + sizeof(struct Arp);
-    buffer = calloc(1, buffer_len);
-    
-    struct Eth_frame *frame;
-    frame = (struct Eth_frame *) buffer;
-    memset(frame->dst_mac, 0xff, 6);
+    void * buffer;
+    size_t buffer_size;
+    buffer_size = sizeof(struct eth_hdr)+sizeof(struct arp_packet);
+    buffer = calloc(1, buffer_size);
 
-    sscanf(IF_MAC, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-        &frame->src_mac[0],
-        &frame->src_mac[1],
-        &frame->src_mac[2],
-        &frame->src_mac[3],
-        &frame->src_mac[4],
-        &frame->src_mac[5]  
+    struct eth_hdr *eth;
+    eth = (struct eth_hdr *)buffer;
+    memset(eth->dst_mac, 0xff, 6); //broadcast mac
+
+    sscanf(MY_MAC, "%02x:%02x:%02x:%02x:%02x:%02x",
+        &eth->src_mac[0],
+        &eth->src_mac[1],
+        &eth->src_mac[2],
+        &eth->src_mac[3],
+        &eth->src_mac[4],
+        &eth->src_mac[5]
     );
 
-    frame->eth_type = htons(ETH_P_ARP);
+    eth->eth_type = htons(ETH_P_ARP);
 
+    struct arp_packet *arp;
+    arp = eth->payload;
 
-    struct Arp *arp;
-    arp = (struct Arp *) frame->payload;
     arp->hw_type = htons(1);
     arp->proto_type = htons(ETH_P_IP);
     arp->hw_len = 6;
     arp->proto_len = 4;
-    arp->opcode = htons(ARPOP_REQUEST);
-    memcpy(arp->sender_mac, frame->src_mac, 6);
-    if(inet_aton(IF_IP, &arp->sender_ip) == 0)
+    arp->opcode = htons(ARP_REQUEST);
+    memcpy(arp->sender_mac, eth->src_mac, 6);
+
+    if(inet_aton(MY_IP, &arp->sender_ip) == 0)
     {
-        printf("ERROR: INET_ATON sender\n");
+        printf("ERROR: INET_ATON sender_ip\n");
         close(sock);
         free(buffer);
         exit(EXIT_FAILURE);
     }
 
-    //target mac nepoznam - necham same nuly
-    if(inet_aton(TARGET_IP, &arp->target_ip) == 0)
+    //arp->target_mac all 0 - already done
+
+
+    if(inet_aton(GW_IP, &arp->target_ip) == 0)
     {
-        printf("ERROR: INET_ATON target\n");
+        printf("ERROR: INET_ATON target_ip\n");
         close(sock);
         free(buffer);
         exit(EXIT_FAILURE);
     }
 
-    send(sock, buffer, buffer_len, 0);
+    if(send(sock, buffer, buffer_size, 0) == -1)
+    {
+        perror("SEND");
+        close(sock);
+        free(buffer);
+        exit(EXIT_FAILURE);
+    }
+
+    uint8_t my_mac[6];
+    sscanf(MY_MAC, "%02x:%02x:%02x:%02x:%02x:%02x",
+        &my_mac[0],
+        &my_mac[1],
+        &my_mac[2],
+        &my_mac[3],
+        &my_mac[4],
+        &my_mac[5]
+    );
 
     for(;;)
     {
-        bzero(buffer, buffer_len);
-        if(recv(sock, buffer, buffer_len, 0) != buffer_len)
+        ssize_t recv_len = 0;
+        memset(buffer, 0, buffer_size);
+        recv_len = recv(sock, buffer, buffer_size, 0);
+
+        // smaller frame than required
+        if(recv_len < buffer_size)
             continue;
-        
-        if(frame->eth_type != htons(ETH_P_ARP))
+        // dst mac is not mine
+        if(memcmp(my_mac, eth->dst_mac, 6) != 0)
+            continue;
+        //eth_type is not ARP
+        if(eth->eth_type != htons(ETH_P_ARP))
+            continue;
+        //arp is not reply
+        if(arp->opcode != htons(ARP_REPLY))
+            continue;
+        //target ip is not mine
+        if(strcmp(MY_IP, inet_ntoa(arp->target_ip)) != 0)
+            continue;
+        //sender ip is not what was asked
+        if(strcmp(GW_IP, inet_ntoa(arp->sender_ip)) != 0)
             continue;
 
-        if(arp->opcode != htons(ARPOP_REPLY))
-            continue;
-
-        if(strcmp(inet_ntoa(arp->sender_ip), TARGET_IP) != 0)
-            continue;
-
-        if(strcmp(inet_ntoa(arp->target_ip), IF_IP) != 0)
-            continue;
-        
-        printf("MAC: %hhx:%hhx:%hhx:%hhx:%hhx:%hhx\n",
+        //this is arp i was waiting for, print sender MAC
+        printf("GW MAC is: %02x:%02x:%02x:%02x:%02x:%02x\n",
             arp->sender_mac[0],
             arp->sender_mac[1],
             arp->sender_mac[2],
