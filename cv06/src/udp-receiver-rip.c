@@ -1,27 +1,26 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <strings.h>
+#include <stdint.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
 #include <arpa/inet.h>
-
-#include <signal.h>
+#include <sys/types.h>
 #include <net/if.h>
 
-#define PORT 520
-#define IP "224.0.0.9"
-#define IFACE "ens4"
+#define MULTI_IP  "224.0.0.9"
+#define PORT      520
+#define IFACE     "ens4"
+#define RIP_REPLY 2
 
 struct RIP_entry
 {
     uint16_t afi;
-    uint16_t route_tag;
-    struct in_addr prefix;
+    uint16_t rt;
+    struct in_addr network_addr;
     struct in_addr mask;
     struct in_addr next_hop;
     uint32_t metric;
@@ -29,22 +28,16 @@ struct RIP_entry
 
 struct RIP_hdr
 {
-    uint8_t cmd;
+    uint8_t command;
     uint8_t version;
     uint16_t unused;
     struct RIP_entry entry[0];
 }__attribute__((packed));
 
-int sock;
-void handle_signal()
-{
-    printf("Exiting program.");
-    close(sock);
-    exit(EXIT_SUCCESS);
-}
 
 int main()
 {
+    int sock;
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if(sock == -1)
     {
@@ -52,18 +45,16 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    signal(SIGINT, handle_signal);
-
     struct sockaddr_in addr;
-    bzero(&addr, sizeof(addr));
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
-    if(inet_pton(AF_INET, IP, &addr.sin_addr) < 1)
+    if(inet_pton(AF_INET, MULTI_IP, &addr.sin_addr) <= 0)
     {
         perror("INET_PTON");
         close(sock);
         exit(EXIT_FAILURE);
-    } 
+    }
+    addr.sin_port = htons(PORT);
 
     if(bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
     {
@@ -72,85 +63,83 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    struct ip_mreqn allow_multicast;
-    bzero(&allow_multicast, sizeof(allow_multicast));
-    if(inet_pton(AF_INET, IP, &allow_multicast.imr_multiaddr) < 1)
+    struct ip_mreqn multistruct;
+    memset(&multistruct, 0, sizeof(multistruct));
+    if(inet_pton(AF_INET, MULTI_IP, &multistruct.imr_multiaddr) <= 0)
     {
-        perror("INET_PTON");
+        perror("INET_PTON IP_MREQN");
         close(sock);
         exit(EXIT_FAILURE);
     }
-    if((allow_multicast.imr_ifindex = if_nametoindex(IFACE)) == 0)
+    multistruct.imr_ifindex = if_nametoindex(IFACE);
+    if(multistruct.imr_ifindex == 0)
     {
         perror("IF_NAMETOINDEX");
         close(sock);
         exit(EXIT_FAILURE);
-    } 
+    }
 
-    if(setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &allow_multicast, sizeof(allow_multicast)) == -1)
+    if(setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &multistruct, sizeof(multistruct)) == -1)
     {
         perror("SETSOCKOPT");
         close(sock);
         exit(EXIT_FAILURE);
     }
 
-    int rip_max_len = sizeof(struct RIP_hdr) + 25*sizeof(struct RIP_entry);
-    char buffer[rip_max_len];
-    ssize_t rip_recv_len;
-    struct RIP_hdr *hdr;
-    struct RIP_entry *entry;
-
+    int buffer_len = sizeof(struct RIP_hdr) + 25*sizeof(struct RIP_entry);
+    uint8_t buffer[buffer_len];
+    socklen_t addr_len = sizeof(addr);
+    ssize_t recv_len = 0;
     for(;;)
     {
-        bzero(buffer, rip_max_len);
-        bzero(&addr, sizeof(addr));
-        socklen_t addr_len = sizeof(addr);
-        rip_recv_len = recvfrom(sock, buffer, rip_max_len, 0, (struct sockaddr *)&addr, &addr_len);
+        memset(&addr, 0, sizeof(addr));
+        memset(buffer, 0, buffer_len);
+        recv_len = recvfrom(sock, buffer, buffer_len, 0, &addr, &addr_len);
 
-        //invalid RIP packet, smaller then allowed
-        if(rip_recv_len < sizeof(struct RIP_hdr) + sizeof(struct RIP_entry))
+        //error while receiving or invalid RIP message
+        if(recv_len < (sizeof(struct RIP_hdr)+sizeof(struct RIP_entry)))
             continue;
 
-        //invalid RIP packet, does not contain 1-25 whole RIP entries    
-        if( (rip_recv_len - sizeof(struct RIP_hdr)) % sizeof(struct RIP_entry) != 0 )
+        //RIP entry is not whole
+        if( (recv_len - sizeof(struct RIP_hdr)) % sizeof(struct RIP_entry) != 0)
             continue;
 
-        hdr = (struct RIP_hdr *)buffer;
-
-        //cmd is not 2 (rip reply)
-        if(hdr->cmd != 2)
+        struct RIP_hdr *hdr = (struct RIP_hdr *)buffer;
+        
+        //command is not REPLY
+        if(hdr->command != RIP_REPLY)
             continue;
 
         //version is not 2
         if(hdr->version != 2)
-            continue;        
+            continue;
 
-        printf("RIP from [%s:%d]\n",
+        printf("RIP from [%s:%d]:\n",
             inet_ntoa(addr.sin_addr),
-            ntohs(addr.sin_port)    
+            ntohs(addr.sin_port)
         );
 
-        rip_recv_len -= sizeof(struct RIP_hdr);
-        entry = (struct RIP_entry *) hdr->entry;
-        while(rip_recv_len > 0)
+        //process each RIP entry
+        struct RIP_entry *entry;
+        char network_addr[16];
+        char mask[16];
+        char nh[16];
+        int rip_entries_count = (recv_len-sizeof(struct RIP_hdr))/sizeof(struct RIP_entry); 
+        for(int i=0; i<rip_entries_count; i++)
         {
-            if(ntohs(entry->afi) == AF_INET)
-            {
-                printf("  P:%s ",
-                    inet_ntoa(entry->prefix)   
-                );
-                printf("M:%s ",
-                    inet_ntoa(entry->mask)  
-                );
-                printf("N:%s C:%d\n",
-                    inet_ntoa(entry->next_hop),
-                    ntohl(entry->metric)    
-                );
-            }            
+            entry = (struct RIP_entry *)(hdr->entry+i);
 
-            entry++;
-            rip_recv_len -= sizeof(struct RIP_entry);
+            inet_ntop(AF_INET, &entry->network_addr, network_addr, 16);
+            inet_ntop(AF_INET, &entry->mask, mask, 16);
+            inet_ntop(AF_INET, &entry->next_hop, nh, 16);
+            printf("  IP: %s, MASK: %s, NH: %s, METRIC: %d\n",
+                network_addr,
+                mask,
+                nh,
+                ntohl(entry->metric)
+            );
         }
+        printf("\n\n");
     }
 
     close(sock);
