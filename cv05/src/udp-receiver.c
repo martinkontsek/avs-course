@@ -2,16 +2,15 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <strings.h>
+#include <stdint.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
 
-#define PORT 8080
-#define IP "0.0.0.0"
+#define IP "127.0.0.1"
+#define PORT 9999
 
 int main()
 {
@@ -24,17 +23,17 @@ int main()
     }
 
     struct sockaddr_in addr;
-    bzero(&addr, sizeof(addr));
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
-    if(inet_pton(AF_INET, IP, &addr.sin_addr) < 1)
+    if(inet_pton(AF_INET, IP, &addr.sin_addr) == -1)
     {
         perror("INET_PTON");
         close(sock);
         exit(EXIT_FAILURE);
-    } 
+    }
+    addr.sin_port = htons(PORT);
 
-    if(bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+    if(bind(sock, (struct sockaddr *) &addr, sizeof(addr)) == -1)
     {
         perror("BIND");
         close(sock);
@@ -42,18 +41,17 @@ int main()
     }
 
     char buffer[100];
-
+    socklen_t addr_len = sizeof(addr);
     for(;;)
-    {
-        bzero(buffer, 100);
-        bzero(&addr, sizeof(addr));
-        socklen_t addr_len = sizeof(addr);
-        recvfrom(sock, buffer, 100, 0, (struct sockaddr *)&addr, &addr_len);
-
-        printf("Msg from [%s:%d]: %s",
+    {        
+        memset(buffer, 0, 100);
+        memset(&addr, 0, sizeof(addr));
+        if(recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &addr, &addr_len) == -1)
+            continue;
+        printf("MSG from [%s:%d]: %s\n",
             inet_ntoa(addr.sin_addr),
             ntohs(addr.sin_port),
-            buffer    
+            buffer
         );
     }
 

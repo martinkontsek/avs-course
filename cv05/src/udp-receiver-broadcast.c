@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 
-#define IP "127.255.255.255"
+#define IP "0.0.0.0"
 #define PORT 9999
 
 int main()
@@ -21,18 +21,6 @@ int main()
         perror("SOCKET");
         exit(EXIT_FAILURE);
     }
-    int allow_broadcast = 1;
-    if(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &allow_broadcast, sizeof(allow_broadcast)) == -1)
-    {
-        perror("SETSOCKOPT");
-        close(sock);
-        exit(EXIT_FAILURE);
-    }
-
-    char buffer[100];
-    memset(buffer, 0, 100);
-    printf("Enter message to send: ");
-    fgets(buffer, 100, stdin);
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -45,7 +33,27 @@ int main()
     }
     addr.sin_port = htons(PORT);
 
-    sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &addr, sizeof(addr));
+    if(bind(sock, (struct sockaddr *) &addr, sizeof(addr)) == -1)
+    {
+        perror("BIND");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+
+    char buffer[100];
+    socklen_t addr_len = sizeof(addr);
+    for(;;)
+    {        
+        memset(buffer, 0, 100);
+        memset(&addr, 0, sizeof(addr));
+        if(recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &addr, &addr_len) == -1)
+            continue;
+        printf("MSG from [%s:%d]: %s\n",
+            inet_ntoa(addr.sin_addr),
+            ntohs(addr.sin_port),
+            buffer
+        );
+    }
 
     close(sock);
     return EXIT_SUCCESS;
