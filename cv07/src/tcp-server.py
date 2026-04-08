@@ -4,25 +4,28 @@ import socket as s
 import threading as t
 
 IP = "::"
-PORT = 4200
+PORT = 9999
+BACKLOG = 1
 
-def handle_client(sock : s.socket):
-    buffer_bytes = sock.recv(1024)
-    print("MSG: "+buffer_bytes.decode())
-    sock.close()
-
-def tcp_server(ip, port, backlog=2):
-    sock = s.socket(s.AF_INET6, s.SOCK_STREAM)
-    sock.bind((ip, port))
-    sock.listen(backlog)
-
+def handle_client(client_sock):
     while True:
-        (client_sock, addr) = sock.accept()
-        print("Connected client [{}]:{}.".format(addr[0], addr[1]))
-
-        t.Thread(target=handle_client, args=(client_sock,)).start()
-
-    sock.close()
+        recv_text = client_sock.recv(100)
+        if len(recv_text) == 0:
+            break
+        print("MSG: "+recv_text.decode())
 
 if __name__ == "__main__":
-    tcp_server(IP, PORT)
+    sock = s.socket(s.AF_INET6, s.SOCK_STREAM)
+    sock.bind((IP,PORT))
+    sock.listen(BACKLOG)
+
+    while True:
+        (client_sock, client_addr) = sock.accept()
+
+        print("Connected client [{}:{}]."
+              .format(client_addr[0], client_addr[1]))
+        
+        thr = t.Thread(target=handle_client, args=(client_sock,))
+        thr.start()
+        
+    sock.close()

@@ -10,10 +10,30 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 #define IP "::"
 #define PORT 9999
 #define BACKLOG 1
+
+void handle_client(void * client_sock_param)
+{
+    int client_sock = *((int *)client_sock_param);
+    char buffer[100];    
+    for(;;)
+    {
+        memset(buffer, 0, 100);
+        if(recv(client_sock, buffer, 100, 0) <= 0)
+        {
+            close(client_sock);
+            break;
+        }
+
+        printf("MSG: %s\n",
+            buffer
+        );
+    }
+}
 
 int main()
 {
@@ -69,19 +89,8 @@ int main()
             ntohs(addr.sin6_port)
         );
 
-        char buffer[100];
-        for(;;)
-        {
-            if(recv(client_sock, buffer, 100, 0) <= 0)
-            {
-                close(client_sock);
-                break;
-            }
-
-            printf("MSG: %s\n",
-                buffer
-            );
-        }
+        pthread_t thread_id;
+        pthread_create(&thread_id, NULL, handle_client, &client_sock);
     }
 
     close(sock);
