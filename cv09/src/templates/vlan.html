@@ -1,94 +1,53 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Mikrotik Switch VLAN GUI</title>
-    <style>
-        .styled-table {
-            border-collapse: collapse;
-            margin: 25px 0;
-            font-size: 0.9em;
-            font-family: sans-serif;
-            min-width: 400px;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
-        }
-        
-        .styled-table thead tr {
-            background-color: #009879;
-            color: #ffffff;
-            text-align: left;
-        }
-
-
-
-        .styled-table th,
-        .styled-table td {
-            padding: 12px 15px;
-        }
-
-        .styled-table tbody tr {
-            border-bottom: 1px solid #dddddd;
-        }
-
-        .styled-table tbody tr:nth-of-type(even) {
-            background-color: #f3f3f3;
-        }
-
-        .styled-table tbody tr:last-of-type {
-            border-bottom: 2px solid #009879;
-        }
-
-        .styled-table tbody tr.active-row {
-            font-weight: bold;
-            color: #009879;
-        }
-    </style>
-</head>
-
-<body>
-    <h1>Mikrotik Switch VLAN GUI</h1>
-    <br />
-    <form method="post">
-    <table class="styled-table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>PVID</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for iface in ifaces %}
-            <tr>
-                <td>{{ iface["interface"] }}</td>
-                <td>
-                    <select name='{{ iface["interface"] }}-type'>
-                        {% if iface["type"] == "access" %}
-                        <option value="access" selected>access</option>
-                        <option value="trunk">trunk</option>
-                        {% endif %}
-                        {% if iface["type"] == "trunk" %}
-                        <option value="access">access</option>
-                        <option value="trunk" selected>trunk</option>
-                        {% endif %}
-                    </select>
-                </td>
-                <td>
-                    <select name='{{ iface["interface"] }}-pvid'>
-                    {% for vid in vids %}
-                        {% if iface["pvid"] == vid["vlan-ids"] %}
-                        <option value='{{vid["vlan-ids"]}}' selected>{{vid["vlan-ids"]}}</option>
-                        {% else %}
-                        <option value='{{vid["vlan-ids"]}}'>{{vid["vlan-ids"]}}</option>
-                        {% endif %}
+    <head>
+        <title>Mikrotik VLAN GUI</title>
+        <style>
+            table, th, td {
+                border: 1px solid white;
+                border-collapse: collapse;
+                color: white;
+            }
+            td.iface{
+                background-color: darkgray;
+            }
+            td.iface_hdr{
+                background-color: grey;
+            }
+            td.pvid, input.pvid{
+                background-color: darkorange;
+            }
+            td.pvid_hdr{
+                background-color: orange;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Mikrotik VLAN GUI</h1>
+        <form action="/" method="post">
+            <table>
+                <tr>
+                    <td class="iface_hdr">IFACE</td>
+                    {% for iface in iface_list %}
+                    <td class="iface">{{ iface["name"] }}</td>
                     {% endfor %}
-                    </select> 
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <button type="submit">Save changes</button>
-    </form>
-</body>
+                </tr>
+                <tr>
+                    <td class="pvid_hdr">PVID</td>
+                    {% for iface in iface_list %}
+                    <td class="pvid"><input class="pvid" type='text' name='{{ iface["name"] }}' value='{{ iface["pvid"] }}'></td>
+                    {% endfor %}
+                </tr>
+            </table>
+            <input type="submit" value="Save">
+            {% if status is defined %}
+                {% if status %}
+                <div style="color: green;">Success</div>
+                {% else %}
+                <div style="color: red;">Error!!!</div>
+                {% endif %}
+            {% endif %}
+        </form>
 
-</html> 
+    </body>
+</html>
